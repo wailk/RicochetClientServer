@@ -1,0 +1,15 @@
+
+
+BUILD et LAUNCH SERVER:
+
+cd server
+make
+./server
+
+
+LAUNCH CLIENT:
+
+cd client/executables
+java -jar Client.jar ou tricheur.jar
+
+
