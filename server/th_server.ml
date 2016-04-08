@@ -8,7 +8,7 @@ open Ricochet
 exception Client_disconnect
 exception Break
 exception Winner of int
-	    
+		      
 type t_phase = Waiting_clients | Reflexion | Enchere | Resolution
 
 type t_user_state = Not_connected | Playing | Waiting
@@ -87,16 +87,16 @@ let game_data_example () =
   
   (* On wrap tout ca dans le type game_data *)
   let sample_game_data = {
-    grid = sample_grid;
-    robots = sample_robots;
-    target = sample_target;
-    horizontal_walls = test_hor_walls;
-    vertical_walls = test_vert_walls;
-  } in
+      grid = sample_grid;
+      robots = sample_robots;
+      target = sample_target;
+      horizontal_walls = test_hor_walls;
+      vertical_walls = test_vert_walls;
+    } in
   sample_game_data
 
 
-  
+    
 (* UTILS *)
 let report_error channel message =
   output_string channel ("[ERROR] " ^ message  ^ "\n");
@@ -132,9 +132,9 @@ let notify_active_clients data command =
 	output_string oc command;
         flush oc;
   done
-	     
+    
 
-	     
+    
 (** AUXIALIARY FUNCTIONS **)
 
 let aux_connection inchan outchan client_id data username  = 
@@ -191,7 +191,7 @@ let aux_enchere inchan outchan client_id data username coups =
       output_string outchan "ERROR/NOT_ALLOWED/\n" ;
       flush outchan;
     end
-  (* Check if valid *)
+      (* Check if valid *)
   else if data.contents.encheres.(client_id) > coups then
     begin
       (* Register bid and confirm *)
@@ -281,7 +281,7 @@ let aux_chat_ext data user message =
   end
 
 
-      
+    
 (* PLAYER SERVICE *)                                                              
 let player_service inchan outchan client_id data =
   while true do
@@ -339,14 +339,14 @@ let connection_instance_thread (service, inchan, outchan, sock, user_id, data) =
 let username_by_id data id =
   match data.contents.users.(id) with
     (userN,_,_) -> userN
-    
+		     
 let bilan data tour =
   let out = ref "" in
   for i=0 to Array.length data.contents.users - 1 do
     if data.contents.active_users.(i) && data.contents.user_states.(i) = Playing then
       match data.contents.users.(i) with
         (userN,_,_) -> out := ("(" ^ userN ^ "," ^ (string_of_int data.contents.scores.(i))
-			      ^ ")" ^ !out) 
+			       ^ ")" ^ !out) 
   done;
   ((string_of_int tour) ^ !out)
 
@@ -375,118 +375,121 @@ let ordered_bid_list data =
   List.sort (fun e1 e2 -> (fst e1) - (fst e2)) bid_user_assoc
 	    
 
-  
+	    
 let game_manager_thread data =
   while true do
 
-    
-    if data.contents.phase = Waiting_clients then
+    match data.contents.phase with
+
+      
+
+      
+      Waiting_clients -> 
       (* On verifie toutes les 10 secondes
        NB: La phase sera changer par le 2e client connecté *)
       Thread.delay 10.
 
 		   
-    else if data.contents.phase = Reflexion then
-      begin
-	print_endline "Phase de reflexion ...\n";
-	(* DEBUT d'une session *)
-	if not data.contents.session_started then
-	  (let session =  ("SESSION/"^(string_of_plateau data.contents.game.horizontal_walls
+     |Reflexion -> 
+       begin
+	 print_endline "Phase de reflexion ...\n";
+	 (* DEBUT d'une session *)
+	 if not data.contents.session_started then
+	   (let session =  ("SESSION/"^(string_of_plateau data.contents.game.horizontal_walls
 							  data.contents.game.vertical_walls)
 			    ^ "/\n") in
 	    notify_active_clients data session;
 	    data.contents.session_started <- true);
-	let robots = data.contents.game.robots
-	and target = data.contents.game.target in
-	let tour = ("TOUR/" ^ (string_of_enigme robots target) ^ "/" ^
-		   (bilan data (data.contents.tour) ) ^ "\n" ) in
-	notify_active_clients data tour;
-	
-	(* dors pendant phase *)
-	begin
-	try
-	  for i = 0 to int_of_float data.contents.reflexion_duration do
-	    if not data.contents.trouve then
-	      Thread.delay 1.0
-	    else
-	      raise Break;
-	  done
-	with Break -> ();
-	end;
-	(* notifier fin de reflexion *)
-	notify_active_clients data "FINREFLEXION/\n";
-	
-	(* changement de phase *)
-	data.contents.phase <- Enchere
-      end
+	 let robots = data.contents.game.robots
+	 and target = data.contents.game.target in
+	 let tour = ("TOUR/" ^ (string_of_enigme robots target) ^ "/" ^
+		       (bilan data (data.contents.tour) ) ^ "\n" ) in
+	 notify_active_clients data tour;
+	 
+	 (* dors pendant phase *)
+	 begin
+	   try
+	     for i = 0 to int_of_float data.contents.reflexion_duration do
+	       if not data.contents.trouve then
+		 Thread.delay 1.0
+	       else
+		 raise Break;
+	     done
+	   with Break -> ();
+	 end;
+	 (* notifier fin de reflexion *)
+	 notify_active_clients data "FINREFLEXION/\n";
+	 
+	 (* changement de phase *)
+	 data.contents.phase <- Enchere
+       end
+	 
+     |Enchere ->
+       begin
+	 print_endline "Phase d'encheres ...\n";
+	 (* dors pendant phase *)
+	 Thread.delay data.contents.auction_duration;
+	 
+	 (* notifier fin de phase d'enchere *)
+	 let best_bidder_id = get_lowest_bidder data in
+	 let fin_enchere = match data.contents.users.(best_bidder_id) with
+	     (userN,_,_) -> "FINENCHERE/" ^ userN ^ "/" ^
+			      (string_of_int (data.contents.encheres.(best_bidder_id)))
+			      ^ "/\n"
+	 in
+	 notify_active_clients data fin_enchere; 
+	 (* changement de phase *)
+	 data.contents.phase <- Resolution
+       end
 
-	
-    else if data.contents.phase = Enchere then
-      begin
-	print_endline "Phase d'encheres ...\n";
-	(* dors pendant phase *)
-	Thread.delay data.contents.auction_duration;
-	
-	(* notifier fin de phase d'enchere *)
-	let best_bidder_id = get_lowest_bidder data in
-	let fin_enchere = match data.contents.users.(best_bidder_id) with
-	    (userN,_,_) -> "FINENCHERE/" ^ userN ^ "/" ^
-			     (string_of_int (data.contents.encheres.(best_bidder_id)))
-			     ^ "/\n"
-	in
-	notify_active_clients data fin_enchere; 
-	(* changement de phase *)
-	data.contents.phase <- Resolution
-      end
+	 
+     |Resolution ->
+       begin
+	 print_endline "Phase de Resolution ...\n";
+	 
+	 (* liste d'encheres triee *)
+	 let ordered_list = ordered_bid_list data in
+	 begin
+	   try
+	     List.iteri (fun i a ->
+			 let current_username = match data.contents.users.(fst a) with (n,_,_) -> n in
+			 if data.contents.active_users.(fst a) && (snd a) != max_int then
+			   begin
+			     if i<>0 then
+			       notify_active_clients data
+						     ("MAUVAISE/" ^ current_username ^ "/\n");
+			     Thread.delay 60.;
+			     if data.contents.won then  
+			       raise (Winner (fst a))
+			     else
+			       (* reset game data *)
+			       data.contents.game <- game_data_example ()
+			   end
+			) ordered_list;
+	   with Winner(id) ->
+	     (* Joueur *)
+	     begin
+	       notify_active_clients data "BONNE/\n";
+	       data.contents.scores.(id) <- data.contents.scores.(id)+1;
+	     end
+	 end;
 
-	
-    else if data.contents.phase = Resolution then
-      begin
-	print_endline "Phase de Resolution ...\n";
-	
-	(* liste d'encheres triee *)
-	let ordered_list = ordered_bid_list data in
-	begin
-	  try
-	    List.iteri (fun i a ->
-			let current_username = match data.contents.users.(fst a) with (n,_,_) -> n in
-			if data.contents.active_users.(fst a) && (snd a) != max_int then
-			  begin
-			    if i<>0 then
-			      notify_active_clients data
-						    ("MAUVAISE/" ^ current_username ^ "/\n");
-			    Thread.delay 60.;
-			    if data.contents.won then  
-			      raise (Winner (fst a))
-			    else
-			      (* reset game data *)
-			      data.contents.game <- game_data_example ()
-			  end
-		       ) ordered_list;
-	  with Winner(id) ->
-	    (* Joueur *)
-	    begin
-	      notify_active_clients data "BONNE/\n";
-	      data.contents.scores.(id) <- data.contents.scores.(id)+1;
-	    end
-	end;
-
-	(* changement de phase *)
-	notify_active_clients data "FINRESO/\n";
-	
-	data.contents.phase <- Reflexion;
-	data.contents.tour <- data.contents.tour + 1;
-	data.contents.won <- false;
-	data.contents.trouve <- false;
-	(* gerer la liste d'attente: rendre touts les status en etat "Playing" *)
-	Array.iteri (fun i user ->
-		     match data.contents.active_users.(i) with
-		       true -> data.contents.user_states.(i) <- Playing
-		      |false -> ())
-		    data.contents.active_users;
-	(* generer un nouveau plateau *)
-	
-      end
+	 (* changement de phase *)
+	 notify_active_clients data "FINRESO/\n";
+	 
+	 data.contents.phase <- Reflexion;
+	 data.contents.tour <- data.contents.tour + 1;
+	 data.contents.won <- false;
+	 data.contents.trouve <- false;
+	 (* gerer la liste d'attente: rendre touts les status en etat "Playing" *)
+	 Array.iteri (fun i user ->
+		      match data.contents.active_users.(i) with
+			true -> data.contents.user_states.(i) <- Playing
+		       |false -> ())
+		     data.contents.active_users;
+	 (* generer un nouveau plateau *)
+	 
+       end
   done
     
 (* *)
