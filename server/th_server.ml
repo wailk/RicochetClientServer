@@ -42,6 +42,8 @@ type t_data = {
 
     mut_enchere : Mutex.t;
 
+    mut_data : Mutex.t;
+
     mutable session_started : bool;
 
     mutable tour : int;
@@ -68,7 +70,7 @@ let game_data_example () =
   let test_vert_walls =
     make_vertical_walls [(0,1);(1,1);(2,1);(3,1);(4,1)] 
   and test_hor_walls =
-    make_horizontal_walls [(0,1);(1,1);(2,1);(3,1);(4,1);(15,5)]
+    make_horizontal_walls [(0,1);(1,1);(2,1);(3,1);(4,1);]
   (* On cree les 4 robtos: *)
   and red_bot = make_robot Red 0 0
   and green_bot = make_robot Green 0 1
@@ -296,19 +298,27 @@ let player_service inchan outchan client_id data =
 	begin
 	  (match group_1 with
              "CONNEXION" ->
-	     aux_connection inchan outchan client_id data group_2
+	     Mutex.lock data.contents.mut_data;
+	     aux_connection inchan outchan client_id data group_2;
+	     Mutex.unlock data.contents.mut_data;
 	    |"SORT"->
-	      aux_sort inchan outchan client_id data group_2
+	      Mutex.lock data.contents.mut_data;
+	      aux_sort inchan outchan client_id data group_2;
+	      Mutex.unlock data.contents.mut_data
 	    |"ENCHERE" ->
-	      Mutex.lock data.contents.mut_enchere;
+	      Mutex.lock data.contents.mut_data;
 	      aux_enchere inchan outchan client_id data group_2 (int_of_string group_3);
-	      Mutex.unlock data.contents.mut_enchere
+	      Mutex.unlock data.contents.mut_data;
 	    |"TROUVE" ->
-	      Mutex.lock data.contents.mut_enchere;
+	      Mutex.lock data.contents.mut_data;
 	      aux_trouve inchan outchan client_id data group_2 (int_of_string group_3);
-	      Mutex.unlock data.contents.mut_enchere
-	    |"SOLUTION" -> aux_solution inchan outchan client_id data group_2 group_3
-	    |"CHAT" -> aux_chat_ext data group_2 group_3
+	      Mutex.unlock data.contents.mut_data;
+	    |"SOLUTION" ->
+	      Mutex.lock data.contents.mut_data;
+	      aux_solution inchan outchan client_id data group_2 group_3;
+	      Mutex.unlock data.contents.mut_data
+	    |"CHAT" ->
+	      aux_chat_ext data group_2 group_3
 	    |_ -> ());
 	end
       )
@@ -390,8 +400,10 @@ let game_manager_thread data =
       Thread.delay 10.
 
 		   
-     |Reflexion -> 
+     |Reflexion ->
+       
        begin
+	 Mutex.lock data.contents.mut_data;
 	 print_endline "Phase de reflexion ...\n";
 	 (* DEBUT d'une session *)
 	 if not data.contents.session_started then
@@ -405,12 +417,15 @@ let game_manager_thread data =
 	 let tour = ("TOUR/" ^ (string_of_enigme robots target) ^ "/" ^
 		       (bilan data (data.contents.tour) ) ^ "\n" ) in
 	 notify_active_clients data tour;
-	 
+	 Mutex.unlock data.contents.mut_data;
 	 (* dors pendant phase *)
 	 begin
 	   try
 	     for i = 0 to int_of_float data.contents.reflexion_duration do
-	       if not data.contents.trouve then
+	       Mutex.lock data.contents.mut_data;
+	       let trouve = data.contents.trouve in
+	       Mutex.unlock data.contents.mut_data;
+	       if not trouve then
 		 Thread.delay 1.0
 	       else
 		 raise Break;
@@ -419,17 +434,20 @@ let game_manager_thread data =
 	 end;
 	 (* notifier fin de reflexion *)
 	 notify_active_clients data "FINREFLEXION/\n";
-	 
+	 Mutex.lock data.contents.mut_data;
 	 (* changement de phase *)
-	 data.contents.phase <- Enchere
+	 data.contents.phase <- Enchere;
+	 Mutex.unlock data.contents.mut_data;
        end
 	 
      |Enchere ->
        begin
+	 
 	 print_endline "Phase d'encheres ...\n";
 	 (* dors pendant phase *)
-	 Thread.delay data.contents.auction_duration;
 	 
+	 Thread.delay data.contents.auction_duration;
+	 Mutex.lock data.contents.mut_data;
 	 (* notifier fin de phase d'enchere *)
 	 let best_bidder_id = get_lowest_bidder data in
 	 let fin_enchere = match data.contents.users.(best_bidder_id) with
@@ -439,7 +457,8 @@ let game_manager_thread data =
 	 in
 	 notify_active_clients data fin_enchere; 
 	 (* changement de phase *)
-	 data.contents.phase <- Resolution
+	 data.contents.phase <- Resolution;
+	 Mutex.unlock data.contents.mut_data
        end
 
 	 
@@ -448,6 +467,7 @@ let game_manager_thread data =
 	 print_endline "Phase de Resolution ...\n";
 	 
 	 (* liste d'encheres triee *)
+	 Mutex.lock data.contents.mut_data;
 	 let ordered_list = ordered_bid_list data in
 	 begin
 	   try
@@ -458,7 +478,9 @@ let game_manager_thread data =
 			     if i<>0 then
 			       notify_active_clients data
 						     ("MAUVAISE/" ^ current_username ^ "/\n");
+			     Mutex.unlock data.contents.mut_data;
 			     Thread.delay 60.;
+			     Mutex.lock data.contents.mut_data;
 			     if data.contents.won then  
 			       raise (Winner (fst a))
 			     else
@@ -466,6 +488,7 @@ let game_manager_thread data =
 			       data.contents.game <- game_data_example ()
 			   end
 			) ordered_list;
+	     Mutex.unlock data.contents.mut_data;
 	   with Winner(id) ->
 	     (* Joueur *)
 	     begin
@@ -527,6 +550,7 @@ let main () =
 		 reflexion_duration = 60. *. 5.;
 		 auction_duration = 30.;
 		 mut_enchere = Mutex.create ();
+		 mut_data = Mutex.create ();
 		 session_started = false;
 		 tour = 0;
 		 won = false;
