@@ -200,7 +200,7 @@ let moves_of_string move_str =
   let aux_col str = match str with
       'R' -> Red
      |'B' -> Blue
-     |'j' -> Yellow
+     |'J' -> Yellow
      |'V' -> Green
      |_ -> failwith "wrong string for making moveseq" in
   let aux str = match str.[1] with
